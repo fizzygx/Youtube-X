@@ -24,7 +24,8 @@ A beautiful, Reduced ad‑free YouTube experience for macOS Ventura and later. B
    - In the dialog, click **Open** again.
    - If that doesn’t work, go to **System Settings → Privacy & Security** → scroll down to the bottom → click **Open Anyway**.
    - The app only needs this one‑time approval – after that it launches normally.
-**N.B- Sometimes ads are unskippable just press the back button to make the ad go into mini player and choose the video again it'll play without ads always works.**
+
+**N.B Sometimes ads are unskippable just press the back button to make the ad go into mini player and choose the video again it'll play without ads always works.**
 
 ## 📦 Built‑in yt‑dlp (download engine)
 
