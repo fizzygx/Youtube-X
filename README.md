@@ -1,10 +1,10 @@
 # YouTube X <img width="128" height="128" alt="ty" src="https://github.com/user-attachments/assets/29f2f682-8d37-4e68-8246-bf56ae59d08c" />
 
-A beautiful, ad‑free YouTube experience for macOS Ventura and later. Built with SwiftUI + WKWebView, it feels like a native Apple app, not a website wrapper.
+A beautiful, Reduced ad‑free YouTube experience for macOS Ventura and later. Built with SwiftUI + WKWebView, it feels like a native Apple app, not a website wrapper.
 
 ## ✨ Features
 
-- **No ads** – advanced network blocking combined with automatic ad‑skipping (even video ads are skipped before you see them)
+- **Reduced ads** – advanced network blocking combined with automatic ad‑skipping (even video ads are skipped before you see them)
 - **Download videos & Shorts** – offline downloads with built‑in `yt‑dlp` (see details below)
 - **5 beautiful themes** – YouTube Dark, Light, Midnight Blue, Forest Green, Crimson Red
 - **Picture‑in‑Picture** – pop any video out and keep it floating while you work
@@ -24,6 +24,7 @@ A beautiful, ad‑free YouTube experience for macOS Ventura and later. Built wit
    - In the dialog, click **Open** again.
    - If that doesn’t work, go to **System Settings → Privacy & Security** → scroll down to the bottom → click **Open Anyway**.
    - The app only needs this one‑time approval – after that it launches normally.
+**N.B- Sometimes ads are unskippable just press the back button to make the ad go into mini player and choose the video again it'll play without ads always works.**
 
 ## 📦 Built‑in yt‑dlp (download engine)
 
