@@ -31,7 +31,7 @@ This app includes the excellent [yt‑dlp](https://github.com/yt-dlp/yt-dlp) pro
 
 - **Automatic updates** – the app silently checks for new versions of yt‑dlp once a week and installs them in the background.
 - **Manual update** – you can also trigger an update manually via the menu: **⋮ → Check for Updates**.
-- **Credit** – all download functionality is powered by yt‑dlp. We are grateful to the yt‑dlp community for making this possible. Please consider supporting their work.
+- **Credit** – all download functionality is powered by yt‑dlp. I am grateful to the yt‑dlp community for making this possible. Please consider supporting their work.
 
 ## 📝 Requirements
 
