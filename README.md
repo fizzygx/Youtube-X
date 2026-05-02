@@ -49,3 +49,5 @@ The source code will be open‑sourced in the near future. Stay tuned!
 ---
 
 **Thank you for trying YouTube X!**
+☕ If you enjoy YouTube X, consider buying me a coffee to support future development!
+<script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="youtubex" data-color="#FFDD00" data-emoji=""  data-font="Cookie" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="#000000" data-coffee-color="#ffffff" ></script>(https://buymeacoffee.com/youtubex)
