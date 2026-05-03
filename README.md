@@ -49,6 +49,8 @@ YouTube X is an independent project and is **not affiliated with or endorsed by 
 The source code will be open‑sourced in the near future. Stay tuned!
 
 ---
+## Screenshot
+<img width="1024" height="768" alt="Screenshot 2026-05-02 at 23 01 40" src="https://github.com/user-attachments/assets/533e8c78-99d1-4c10-bac9-e900b8b5970c" />
 
 **Thank you for trying YouTube X!**
 
