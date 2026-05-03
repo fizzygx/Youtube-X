@@ -52,7 +52,6 @@ The source code will be open‑sourced in the near future. Stay tuned!
 ## Screenshot
 <img width="1024" height="768" alt="Screenshot 2026-05-02 at 23 01 40" src="https://github.com/user-attachments/assets/533e8c78-99d1-4c10-bac9-e900b8b5970c" />
 
-<img width="1024" height="768" alt="Screenshot 2026-05-02 at 23 01 40" src="https://github.com/user-attachments/assets/4d3d7ae5-f26a-40b4-88bc-5ad637c01fe1" />
 
 <img width="1024" height="768" alt="Screenshot 2026-05-02 at 22 59 16" src="https://github.com/user-attachments/assets/5dde1c31-2227-47f8-a195-5cc4250eab8a" />
 
