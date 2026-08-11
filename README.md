@@ -46,7 +46,7 @@ YouTube X is an independent project and is **not affiliated with or endorsed by 
 
 ## 🔮 Source Code
 
-The source code will be open‑sourced in the near future. Stay tuned!
+The source code will be open‑sourced in v3 Release. Stay tuned!
 
 ---
 ## Screenshot
