@@ -43,19 +43,15 @@ This app includes the excellent [yt‑dlp](https://github.com/yt-dlp/yt-dlp) pro
 ## ⚠️ Disclaimer
 
 YouTube X is an independent project and is **not affiliated with or endorsed by YouTube LLC or Google Inc.** All trademarks belong to their respective owners. This app is intended for personal, non‑commercial use.
-
-## 🔮 Source Code
-
-The source code will be open‑sourced in v3 Release. Stay tuned!
-
 ---
 ## Screenshot
 🛠️ v1.0-v1.01
 
 <img width="1024" height="768" alt="Screenshot 2026-05-02 at 23 01 40" src="https://github.com/user-attachments/assets/533e8c78-99d1-4c10-bac9-e900b8b5970c" />
 
-🛠️ v2.0.0
+---
 
+🛠️ v2.0.0
 
 <img width="1366" height="768" alt="Screenshot 2026-08-11 at 21 13 41" src="https://github.com/user-attachments/assets/2b65c9e4-4de4-485a-a10c-da82b33a154c" />
 
