@@ -123,17 +123,18 @@ That's it — the app will use these bundled copies from first launch, and will 
 
 > **Note:** the ad‑blocking rule list (`adblocker.json`) *is* checked into the repo and needs no extra setup.
 🛠️ v2.0.0
+---
+### Screenshot s
+<img width="789" height="516" alt="yx1" src="https://github.com/user-attachments/assets/4554ec97-b5cc-48c3-a3f5-2211f7002ef6" />
 
 ---
-## Screenshot 
 <img width="1366" height="768" alt="Screenshot 2026-08-11 at 21 13 41" src="https://github.com/user-attachments/assets/2b65c9e4-4de4-485a-a10c-da82b33a154c" />
 
-
-**Thank you for trying YouTube X!**
-
+---
+### Thank you for trying YouTube X!
 ☕ If you enjoy YouTube X, consider buying me a coffee to support future development!
 [![BuyMeACoffee](https://raw.githubusercontent.com/pachadotdev/buymeacoffee-badges/main/bmc-yellow.svg)](https://www.buymeacoffee.com/youtubex)
 ---
-## ⚠️ Disclaimer
+### ⚠️ Disclaimer
 
 YouTube X is an independent project and is **not affiliated with or endorsed by YouTube LLC or Google Inc.** All trademarks belong to their respective owners. This app is intended for personal, non‑commercial use.
