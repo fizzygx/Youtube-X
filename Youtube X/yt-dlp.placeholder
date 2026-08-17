@@ -1,0 +1,11 @@
+This is a placeholder.
+
+The real "yt-dlp" binary is not checked into this repository (see .gitignore)
+and needs to be added before building - see the README's
+"Building from Source" section for exact steps:
+
+  1. Download yt-dlp_macos from https://github.com/yt-dlp/yt-dlp/releases/latest
+  2. Rename it to exactly "yt-dlp" (no extension)
+  3. chmod +x yt-dlp
+  4. Drag it into the "Youtube X" group in Xcode, replacing this file,
+     with "Copy items if needed" checked and the Youtube X target selected.

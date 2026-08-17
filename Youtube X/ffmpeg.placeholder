@@ -1,0 +1,13 @@
+This is a placeholder.
+
+The real "ffmpeg" binary is not checked into this repository (see .gitignore)
+and needs to be added before building - see the README's
+"Building from Source" section for exact steps:
+
+  1. Download the macOS build (filename contains "macos") from
+     https://github.com/yt-dlp/FFmpeg-Builds/releases/latest
+  2. Extract the archive - the "ffmpeg" binary is inside, usually under bin/
+  3. Rename/move it so you have a plain file named exactly "ffmpeg"
+  4. chmod +x ffmpeg
+  5. Drag it into the "Youtube X" group in Xcode, replacing this file,
+     with "Copy items if needed" checked and the Youtube X target selected.
