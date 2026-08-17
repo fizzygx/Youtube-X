@@ -1,1 +1,53 @@
-gitignore
+# === yt-dlp & ffmpeg binaries ===
+# These are downloaded separately (see README > Building from Source) and
+# are NOT committed to the repo - they're binaries, not source, and change
+# on their own update cadence. Real placement can be nested inside the
+# Xcode project group, so these patterns match at any depth.
+**/yt-dlp
+**/ffmpeg
+!**/yt-dlp.placeholder
+!**/ffmpeg.placeholder
+
+# === Xcode ===
+build/
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# === Swift Package Manager ===
+.build/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+
+# === CocoaPods (unused here, harmless if absent) ===
+Pods/
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# === Misc ===
+*.log
+*.swp
+.env
