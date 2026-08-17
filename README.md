@@ -1,7 +1,6 @@
 # YouTube X <img width="128" height="128" alt="ty" src="https://github.com/user-attachments/assets/29f2f682-8d37-4e68-8246-bf56ae59d08c" />
 
-A beautiful, Reduced ad‑free YouTube experience for macOS Ventura and later. Built with SwiftUI + WKWebView, it feels like a native Apple app, not a website wrapper.
-
+A beautiful, Reduced ad‑free YouTube experience for macOS Ventura and later. Built with SwiftUI + WKWebView, it feels like a native Apple app.
 ## ✨ Features
 
 - **Reduced ads** – advanced network blocking combined with automatic ad‑skipping (even video ads are skipped before you see them)
