@@ -18,7 +18,7 @@ extension URL {
         host?.contains("youtube.com") == true || host?.contains("youtu.be") == true
     }
 }
-/// Presents the native macOS share sheet for a local file
+///macOS share sheet for a local file
 func presentShareSheet(for url: URL) {
     guard let window = NSApp.keyWindow, let contentView = window.contentView else { return }
     let picker = NSSharingServicePicker(items: [url])
@@ -176,17 +176,13 @@ class WebViewStore: NSObject, ObservableObject {
     }
 
     // MARK: - SponsorBlock
-    /// Tracks which video the currently-injected segments belong to, so a fetch that completes after the user has already navigated elsewhere gets discarded instead of injected onto the wrong page.
     private var sponsorBlockVideoId: String?
-    /// Called whenever a video/Shorts page is detected. Fetches segments from cache if available) only when the video actually changed, and no-ops entirely if SponsorBlock is off.
     func maybeApplySponsorBlock() {
         guard SponsorBlockManager.shared.isEnabled, let videoId = currentVideoId, !videoId.isEmpty else { return }
         guard videoId != sponsorBlockVideoId else { return }
         sponsorBlockVideoId = videoId
         SponsorBlockManager.shared.segments(for: videoId) { [weak self] segments in
             guard let self = self else { return }
-            // Discard if the person already navigated to a different video
-            // before this fetch completed
             guard self.currentVideoId == videoId else { return }
             self.injectSponsorBlockSkipper(segments: segments)
         }
@@ -444,10 +440,8 @@ class WebViewStore: NSObject, ObservableObject {
                         self.lastVideoTitle = title
                         WatchHistoryManager.shared.add(url: self.webView.url?.absoluteString ?? "", title: title)
                     } else if retriesLeft > 0 {
-                        // Title not resolved yet (slow load / DOM not ready) -
-                        // retry shortly rather than showing a placeholder.
-                        // self.videoTitle deliberately isn't touched here, so
-                        // it keeps whatever it last held until this resolves.
+/// Title not resolved yet (slow load / DOM not ready) retry shortly rather than showing a placeholder.
+/// self.videoTitle deliberately isn't touched here, so it keeps whatever it last held until this resolves.
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                             self?.checkIfVideoPage(retriesLeft: retriesLeft - 1)
                         }
@@ -774,11 +768,7 @@ class PlayerManager: ObservableObject {
 
     @Published var offlineNowPlayingTitle: String = ""
     @Published var isOfflinePlaying: Bool = false
-    /// True while the current item is a Short being browsed in the offline
-    /// Shorts tab - makes it loop itself on end instead of advancing to the next item in the general playlist.
     @Published var isLoopingCurrentItem: Bool = false
-    /// True whenever the Offline or Downloads pane has its Shorts tab active. Read by KeyboardShortcuts' global monitor so Up/Down can navigate Shorts regardless of which specific control currently holds keyboard focus -
-    /// SwiftUI's .onMoveCommand only fires when the List itself is first responder, which stops working the moment focus moves to the playing video.
     @Published var isBrowsingShorts: Bool = false
 
     var currentIndex: Int {
@@ -1014,7 +1004,7 @@ private struct PulsingPlayIndicator: View {
     }
 }
 
-/// Shared row for both sidebar Now Playing sections the dismiss (x) only appears on hover instead of sitting there permanently while media plays because it was getting in the way of the initial title texts.
+/// Shared row for both sidebar Now Playing sections.
 private struct NowPlayingRow: View {
     let title: String
     let onTap: () -> Void
@@ -1057,6 +1047,9 @@ struct ContentView: View {
     @StateObject private var watchHistory = WatchHistoryManager.shared
     @StateObject private var playerManager = PlayerManager.shared
     @StateObject private var networkMonitor = NetworkMonitor.shared
+    @ObservedObject private var appUpdateChecker = AppUpdateChecker.shared
+    @ObservedObject private var ytDlpUpdater = YtDlpUpdater.shared
+    @ObservedObject private var ffmpegUpdater = FfmpegUpdater.shared
     @Environment(\.openWindow) var openWindow
 
     @State private var navigationSelection: String? = "home"
@@ -1403,10 +1396,27 @@ struct ContentView: View {
                 .help("YouTube X Now Playing – click to show player")
             }
 
-            Button(action: { showOptionsPopover.toggle() }) { Image(systemName: "ellipsis.circle") }
+            Button(action: { showOptionsPopover.toggle() }) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "ellipsis.circle")
+                    if optionsNeedsAttention {
+                        Circle()
+                            .fill(Color.ytRed)
+                            .frame(width: 8, height: 8)
+                            .offset(x: 6, y: -5)
+                    }
+                }
+            }
             .popover(isPresented: $showOptionsPopover) { OptionsPopover() }
             .help("More options")
         }
+    }
+
+/// Update checker in options
+    private var optionsNeedsAttention: Bool {
+        appUpdateChecker.updateAvailable
+            || ytDlpUpdater.updateAvailable || ytDlpUpdater.isUpdating
+            || ffmpegUpdater.updateAvailable || ffmpegUpdater.isUpdating
     }
 }
 
@@ -1610,6 +1620,8 @@ struct OptionsPopover: View {
     @ObservedObject private var downloadManager = DownloadManager.shared
     @ObservedObject private var watchHistory = WatchHistoryManager.shared
     @ObservedObject private var appUpdateChecker = AppUpdateChecker.shared
+    @ObservedObject private var ytDlpUpdater = YtDlpUpdater.shared
+    @ObservedObject private var ffmpegUpdater = FfmpegUpdater.shared
     @ObservedObject private var sponsorBlock = SponsorBlockManager.shared
     @State private var showThemeMenu = false
     @State private var showSponsorCategoryMenu = false
@@ -1713,6 +1725,24 @@ struct OptionsPopover: View {
                             isSelected: false
                         ) { NSWorkspace.shared.open(appUpdateChecker.releasesURL) }
                     }
+                    ToolUpdateRow(
+                        name: "yt-dlp",
+                        isUpdating: ytDlpUpdater.isUpdating,
+                        progress: ytDlpUpdater.downloadProgress,
+                        updateAvailable: ytDlpUpdater.updateAvailable,
+                        latestVersion: ytDlpUpdater.latestVersion,
+                        error: ytDlpUpdater.lastError,
+                        onRetry: { ytDlpUpdater.performUpdate() }
+                    )
+                    ToolUpdateRow(
+                        name: "FFmpeg",
+                        isUpdating: ffmpegUpdater.isUpdating,
+                        progress: ffmpegUpdater.downloadProgress,
+                        updateAvailable: ffmpegUpdater.updateAvailable,
+                        latestVersion: ffmpegUpdater.latestVersion,
+                        error: ffmpegUpdater.lastError,
+                        onRetry: { ffmpegUpdater.performUpdate() }
+                    )
                     DownloadOptionRow(title: "Check for Updates", subtitle: nil, systemImage: "arrow.triangle.2.circlepath", isSelected: false) {
                         YtDlpUpdater.shared.checkForUpdateIfNeeded(manual: true)
                         FfmpegUpdater.shared.checkForUpdateIfNeeded(manual: true)
@@ -1749,6 +1779,56 @@ struct OptionsPopover: View {
 }
 
 // MARK: - Download popovers (Audio only)
+/// Shows the live state of a yt-dlp/ffmpeg background update
+private struct ToolUpdateRow: View {
+    let name: String
+    let isUpdating: Bool
+    let progress: Double
+    let updateAvailable: Bool
+    let latestVersion: String?
+    let error: String?
+    let onRetry: () -> Void
+
+    var body: some View {
+        if isUpdating {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Updating \(name)…")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundColor(Color.ytTextPrimary)
+                    Spacer()
+                    Text("\(Int(progress * 100))%")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.ytTextSecondary)
+                }
+                ProgressView(value: progress).tint(Color.ytRed)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+        } else if let error = error, updateAvailable {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(name) update failed")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundColor(.red)
+                    Text(error)
+                        .font(.system(size: 10.5))
+                        .foregroundColor(Color.ytTextSecondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Button("Retry", action: onRetry)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+        } else {
+            EmptyView()
+        }
+    }
+}
+
 private struct DownloadOptionRow: View {
     let title: String
     let subtitle: String?
@@ -2407,9 +2487,7 @@ struct OfflineDetailView: View {
             }
             selectedIndex = newIndex
             if mediaType == .shorts, urls.indices.contains(newIndex) {
-                // Shorts behave like a continuous feed - Up/Down immediately
-                // plays the next/previous one instead of just moving the
-                // list selection and waiting for a manual play.
+            // Shorts behave like a continuous feed - Up/Down immediately
                 playOfflineItem(urls[newIndex], in: urls)
             }
         }

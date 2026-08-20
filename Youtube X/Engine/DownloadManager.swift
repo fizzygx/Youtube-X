@@ -9,16 +9,64 @@ import Foundation
 import Combine
 import AppKit
 
+// MARK: - Shared progress-tracked file downloader
+
+final class BinaryDownloader: NSObject, URLSessionDownloadDelegate {
+    private var progressHandler: ((Double) -> Void)?
+    private var completionHandler: ((Result<URL, Error>) -> Void)?
+    private var session: URLSession?
+
+    func download(from url: URL, progress: @escaping (Double) -> Void, completion: @escaping (Result<URL, Error>) -> Void) {
+        progressHandler = progress
+        completionHandler = completion
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        self.session = session
+        session.downloadTask(with: url).resume()
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let pct = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        DispatchQueue.main.async { self.progressHandler?(pct) }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // `location` is deleted the moment this method returns - move it
+        // somewhere stable first so the caller can actually use it.
+        let stableURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do {
+            try FileManager.default.moveItem(at: location, to: stableURL)
+            DispatchQueue.main.async { self.completionHandler?(.success(stableURL)) }
+        } catch {
+            DispatchQueue.main.async { self.completionHandler?(.failure(error)) }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            DispatchQueue.main.async { self.completionHandler?(.failure(error)) }
+        }
+    }
+}
+
 // MARK: - yt‑dlp Updater (embedded)
 class YtDlpUpdater: ObservableObject {
     static let shared = YtDlpUpdater()
 
+    @Published var updateAvailable = false
+    @Published var latestVersion: String?
+    @Published var isUpdating = false
+    @Published var downloadProgress: Double = 0
+    @Published var lastError: String?
+
     private let lastCheckKey = "YtDlpLastCheck"
-    private let checkInterval: TimeInterval = 7 * 24 * 60 * 60
-    private var updateInProgress = false
+    private let checkInterval: TimeInterval = 24 * 60 * 60 // daily
+    private var checkInProgress = false
+    private var downloader: BinaryDownloader?
+    private var pendingTag: String?
 
     func checkForUpdateIfNeeded(manual: Bool = false) {
-        guard !updateInProgress else { return }
+        guard !checkInProgress, !isUpdating else { return }
 
         if !manual {
             let last = UserDefaults.standard.double(forKey: lastCheckKey)
@@ -26,75 +74,144 @@ class YtDlpUpdater: ObservableObject {
             guard now - last >= checkInterval else { return }
         }
 
-        updateInProgress = true
+        checkInProgress = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            defer { DispatchQueue.main.async { self?.updateInProgress = false } }
+            guard let self = self else { return }
+            defer { DispatchQueue.main.async { self.checkInProgress = false } }
 
+            let currentVersion = self.currentInstalledVersion()
+            guard !currentVersion.isEmpty else {
+                DispatchQueue.main.async { self.lastError = "Couldn't determine the installed yt-dlp version." }
+                return
+            }
+
+            guard let latest = self.fetchLatestVersion() else {
+                DispatchQueue.main.async { self.lastError = "Couldn't check for yt-dlp updates." }
+                return
+            }
+
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: self.lastCheckKey)
+
+            guard currentVersion != latest.version else {
+                DispatchQueue.main.async {
+                    self.updateAvailable = false
+                    self.lastError = nil
+                    if manual {
+                        let alert = NSAlert()
+                        alert.messageText = "yt-dlp Is Up To Date"
+                        alert.informativeText = "You already have the latest version (\(currentVersion))."
+                        alert.runModal()
+                    }
+                }
+                return
+            }
+
+            self.pendingTag = latest.tag
+            DispatchQueue.main.async {
+                self.updateAvailable = true
+                self.latestVersion = latest.version
+                self.lastError = nil
+                self.performUpdate()
+            }
+        }
+    }
+
+    /// Downloads and installs the pending update.
+    /// Called automatically the moment a new version is detected, ( should never fail silently in the background)
+    func performUpdate() {
+        guard !isUpdating, let tag = pendingTag, let expectedVersion = latestVersion,
+              let url = URL(string: "https://github.com/yt-dlp/yt-dlp/releases/download/\(tag)/yt-dlp_macos") else { return }
+
+        isUpdating = true
+        downloadProgress = 0
+        lastError = nil
+
+        let downloader = BinaryDownloader()
+        self.downloader = downloader
+        downloader.download(from: url, progress: { [weak self] pct in
+            self?.downloadProgress = pct
+        }, completion: { [weak self] result in
+            guard let self = self else { return }
+            self.downloader = nil
+            switch result {
+            case .success(let tempFile):
+                self.install(downloadedFile: tempFile, expectedVersion: expectedVersion)
+            case .failure(let error):
+                self.isUpdating = false
+                self.lastError = "Download failed: \(error.localizedDescription)"
+            }
+        })
+    }
+
+    private func install(downloadedFile: URL, expectedVersion: String) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             let ytxDir = appSupport.appendingPathComponent("YouTube X")
             try? FileManager.default.createDirectory(at: ytxDir, withIntermediateDirectories: true)
             let userYtdlp = ytxDir.appendingPathComponent("yt-dlp")
 
-            guard let bundledPath = Bundle.main.path(forResource: "yt-dlp", ofType: nil) else { return }
-            let bundledURL = URL(fileURLWithPath: bundledPath)
-
-            let currentVersion: String
-            if FileManager.default.fileExists(atPath: userYtdlp.path) {
-                currentVersion = self?.runCommand(executable: userYtdlp, arguments: ["--version"]) ?? ""
-            } else {
-                currentVersion = self?.runCommand(executable: bundledURL, arguments: ["--version"]) ?? ""
-            }
-            guard !currentVersion.isEmpty else { return }
-
-            let latestVersion: String
-            let latestTag: String
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-            task.arguments = ["-s", "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"]
-            let pipe = Pipe(); task.standardOutput = pipe
-            do { try task.run(); task.waitUntilExit() } catch { return }
-            guard let data = try? JSONSerialization.jsonObject(with: pipe.fileHandleForReading.readDataToEndOfFile()) as? [String: Any],
-                  let tag = data["tag_name"] as? String else { return }
-            latestTag = tag
-            latestVersion = tag.replacingOccurrences(of: "-", with: ".")
-
-            if currentVersion == latestVersion { return }
-
-            let tempURL = ytxDir.appendingPathComponent("yt-dlp_download")
-            let dlTask = Process()
-            dlTask.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-            dlTask.arguments = ["-L", "https://github.com/yt-dlp/yt-dlp/releases/download/\(latestTag)/yt-dlp_macos", "-o", tempURL.path]
-            do { try dlTask.run(); dlTask.waitUntilExit() } catch { return }
-            guard FileManager.default.fileExists(atPath: tempURL.path) else { return }
-
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: tempURL.path),
-               let size = attrs[.size] as? Int64, size < 1_000_000 {
-                try? FileManager.default.removeItem(at: tempURL)
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: downloadedFile.path),
+                  let size = attrs[.size] as? Int64, size > 1_000_000 else {
+                try? FileManager.default.removeItem(at: downloadedFile)
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "The downloaded file looked invalid." }
                 return
             }
 
-            let newVersion = self?.runCommand(executable: tempURL, arguments: ["--version"]) ?? ""
-            guard newVersion == latestVersion else { try? FileManager.default.removeItem(at: tempURL); return }
-
             do {
-                var attrs = try FileManager.default.attributesOfItem(atPath: tempURL.path)
-                let permissions = (attrs[.posixPermissions] as? UInt16) ?? 0o644
-                attrs[.posixPermissions] = permissions | 0o111
-                try FileManager.default.setAttributes(attrs, ofItemAtPath: tempURL.path)
+                var fileAttrs = try FileManager.default.attributesOfItem(atPath: downloadedFile.path)
+                let permissions = (fileAttrs[.posixPermissions] as? UInt16) ?? 0o644
+                fileAttrs[.posixPermissions] = permissions | 0o111
+                try FileManager.default.setAttributes(fileAttrs, ofItemAtPath: downloadedFile.path)
             } catch {}
-            try? FileManager.default.removeItem(at: userYtdlp)
-            try? FileManager.default.moveItem(at: tempURL, to: userYtdlp)
 
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: self?.lastCheckKey ?? "")
+            let newVersion = self.runCommand(executable: downloadedFile, arguments: ["--version"]) ?? ""
+            guard newVersion == expectedVersion else {
+                try? FileManager.default.removeItem(at: downloadedFile)
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "The downloaded version didn't verify correctly." }
+                return
+            }
+
+            try? FileManager.default.removeItem(at: userYtdlp)
+            do {
+                try FileManager.default.moveItem(at: downloadedFile, to: userYtdlp)
+            } catch {
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "Couldn't install: \(error.localizedDescription)" }
+                return
+            }
+
             DispatchQueue.main.async {
-                if manual {
-                    let alert = NSAlert()
-                    alert.messageText = "yt-dlp Updated"
-                    alert.informativeText = "Version \(latestVersion) installed."
-                    alert.runModal()
-                }
+                self.isUpdating = false
+                self.updateAvailable = false
+                self.downloadProgress = 1
+                self.lastError = nil
+                self.pendingTag = nil
             }
         }
+    }
+
+    /// Checks the user-updated copy first, only falling back to the bundled resource if no updated copy has ever been installed.
+    private func currentInstalledVersion() -> String {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let userYtdlp = appSupport.appendingPathComponent("YouTube X/yt-dlp")
+        if FileManager.default.fileExists(atPath: userYtdlp.path) {
+            return runCommand(executable: userYtdlp, arguments: ["--version"]) ?? ""
+        }
+        if let bundledPath = Bundle.main.path(forResource: "yt-dlp", ofType: nil) {
+            return runCommand(executable: URL(fileURLWithPath: bundledPath), arguments: ["--version"]) ?? ""
+        }
+        return ""
+    }
+
+    private func fetchLatestVersion() -> (version: String, tag: String)? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        task.arguments = ["-s", "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"]
+        let pipe = Pipe(); task.standardOutput = pipe
+        do { try task.run(); task.waitUntilExit() } catch { return nil }
+        guard let data = try? JSONSerialization.jsonObject(with: pipe.fileHandleForReading.readDataToEndOfFile()) as? [String: Any],
+              let tag = data["tag_name"] as? String else { return nil }
+        return (tag.replacingOccurrences(of: "-", with: "."), tag)
     }
 
     private func runCommand(executable: URL, arguments: [String]) -> String? {
@@ -118,11 +235,21 @@ class YtDlpUpdater: ObservableObject {
 // MARK: - FFmpeg Updater (yt-dlp/FFmpeg-Builds – rolling snapshots)
 class FfmpegUpdater: ObservableObject {
     static let shared = FfmpegUpdater()
-    
+
+    @Published var updateAvailable = false
+    @Published var latestVersion: String?
+    @Published var isUpdating = false
+    @Published var downloadProgress: Double = 0
+    @Published var lastError: String?
+
     private let lastCheckKey = "FfmpegLastCheck"
-    private let checkInterval: TimeInterval = 7 * 24 * 60 * 60
-    private var updateInProgress = false
-    
+    private let checkInterval: TimeInterval = 24 * 60 * 60 // daily
+    private var checkInProgress = false
+    private var downloader: BinaryDownloader?
+    private var pendingDownloadURL: String?
+    private var pendingAssetName: String?
+    private var pendingTag: String?
+
     /// Best available ffmpeg path – updated copy in Application Support first, then the bundled one, then Homebrew.
     var bestFfmpegPath: String? {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -135,83 +262,138 @@ class FfmpegUpdater: ObservableObject {
         }
         return nil
     }
-    
+
     func checkForUpdateIfNeeded(manual: Bool = false) {
-        guard !updateInProgress else { return }
+        guard !checkInProgress, !isUpdating else { return }
         if !manual {
             let last = UserDefaults.standard.double(forKey: lastCheckKey)
             let now = Date().timeIntervalSince1970
             guard now - last >= checkInterval else { return }
         }
-        
-        updateInProgress = true
+
+        checkInProgress = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            defer { DispatchQueue.main.async { self?.updateInProgress = false } }
-            
+            guard let self = self else { return }
+            defer { DispatchQueue.main.async { self.checkInProgress = false } }
+
+            guard let currentPath = self.bestFfmpegPath else {
+                DispatchQueue.main.async { self.lastError = "No ffmpeg binary found." }
+                return
+            }
+            let raw = self.runCommand(executable: URL(fileURLWithPath: currentPath), arguments: ["-version"]) ?? ""
+            let currentVersion = raw.components(separatedBy: " ").dropFirst().first ?? raw
+            guard !currentVersion.isEmpty else {
+                DispatchQueue.main.async { self.lastError = "Couldn't determine the installed ffmpeg version." }
+                return
+            }
+
+    /// yt-dlp/FFmpeg-Builds releases are continuous snapshots
+    /// Get the latest release and find the macOS asset.
+            guard let releaseInfo = self.fetchLatestReleaseInfo(from: "https://api.github.com/repos/yt-dlp/FFmpeg-Builds/releases/latest"),
+                  let downloadURL = releaseInfo.url,
+                  let latestTag = releaseInfo.tag,
+                  let assetName = releaseInfo.assetName else {
+                DispatchQueue.main.async { self.lastError = "Couldn't check for ffmpeg updates." }
+                return
+            }
+
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: self.lastCheckKey)
+
+            guard currentVersion.trimmingCharacters(in: .whitespacesAndNewlines) != latestTag.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                DispatchQueue.main.async {
+                    self.updateAvailable = false
+                    self.lastError = nil
+                    if manual {
+                        let alert = NSAlert()
+                        alert.messageText = "FFmpeg Is Up To Date"
+                        alert.informativeText = "You already have the latest build (\(currentVersion))."
+                        alert.runModal()
+                    }
+                }
+                return
+            }
+
+            self.pendingDownloadURL = downloadURL
+            self.pendingAssetName = assetName
+            self.pendingTag = latestTag
+
+            DispatchQueue.main.async {
+                self.updateAvailable = true
+                self.latestVersion = latestTag
+                self.lastError = nil
+                self.performUpdate()
+            }
+        }
+    }
+
+    /// Downloads, extracts, and installs the pending update. Called automatically on detection, and again from Retry on failure.
+    func performUpdate() {
+        guard !isUpdating,
+              let urlString = pendingDownloadURL, let url = URL(string: urlString),
+              let assetName = pendingAssetName, let tag = pendingTag else { return }
+
+        isUpdating = true
+        downloadProgress = 0
+        lastError = nil
+
+        let downloader = BinaryDownloader()
+        self.downloader = downloader
+        downloader.download(from: url, progress: { [weak self] pct in
+            self?.downloadProgress = pct
+        }, completion: { [weak self] result in
+            guard let self = self else { return }
+            self.downloader = nil
+            switch result {
+            case .success(let tempFile):
+                self.extractAndInstall(archiveFile: tempFile, assetName: assetName, expectedTag: tag)
+            case .failure(let error):
+                self.isUpdating = false
+                self.lastError = "Download failed: \(error.localizedDescription)"
+            }
+        })
+    }
+
+    private func extractAndInstall(archiveFile: URL, assetName: String, expectedTag: String) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             let ytxDir = appSupport.appendingPathComponent("YouTube X")
             try? FileManager.default.createDirectory(at: ytxDir, withIntermediateDirectories: true)
             let userFfmpeg = ytxDir.appendingPathComponent("ffmpeg")
-            
-            // Get current version from the best available binary
-            let currentPath = self?.bestFfmpegPath ?? ""
-            let currentVersion: String
-            if !currentPath.isEmpty {
-                // ffmpeg version output: "ffmpeg version n7.1 …"
-                let raw = self?.runCommand(executable: URL(fileURLWithPath: currentPath), arguments: ["-version"]) ?? ""
-                currentVersion = raw.components(separatedBy: " ").dropFirst().first ?? raw
-            } else {
-                currentVersion = ""
-            }
-            guard !currentVersion.isEmpty else { return }
-            
-            /// yt-dlp/FFmpeg-Builds releases are continuous snapshots
-           /// Each release tag is something like "n7.1-39-g…" fetch the latest release and find the macOS asset.
-            guard let releaseInfo = self?.fetchLatestReleaseInfo(from: "https://api.github.com/repos/yt-dlp/FFmpeg-Builds/releases/latest"),
-                  let downloadURL = releaseInfo.url,
-                  let latestTag = releaseInfo.tag,
-                  let assetName = releaseInfo.assetName else { return }
-            
-            let latestVersion = latestTag   // e.g., "n7.1-39-g123456"
-            if currentVersion.trimmingCharacters(in: .whitespacesAndNewlines) == latestVersion.trimmingCharacters(in: .whitespacesAndNewlines) { return }
-            
-/// Download the archive (this is a compressed .zip or .tar.xz, not a raw binary which needs to be extracted before they are usable at all).
-            let archiveURL = ytxDir.appendingPathComponent(assetName)
-            let dlTask = Process()
-            dlTask.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-            dlTask.arguments = ["-L", downloadURL, "-o", archiveURL.path]
-            do { try dlTask.run(); dlTask.waitUntilExit() } catch { return }
-            
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: archiveURL.path),
+
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: archiveFile.path),
                   let size = attrs[.size] as? Int64, size > 1_000_000 else {
-                try? FileManager.default.removeItem(at: archiveURL)
+                try? FileManager.default.removeItem(at: archiveFile)
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "The downloaded archive looked invalid." }
                 return
             }
-            
+
             let extractDir = ytxDir.appendingPathComponent("ffmpeg_extract_tmp")
             try? FileManager.default.removeItem(at: extractDir)
             try? FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
-            
+
             let extractTask = Process()
             if assetName.lowercased().hasSuffix(".zip") {
                 extractTask.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-                extractTask.arguments = ["-q", archiveURL.path, "-d", extractDir.path]
+                extractTask.arguments = ["-q", archiveFile.path, "-d", extractDir.path]
             } else {
                 // .tar.xz / .tar.gz - plain `tar -xf` auto-detects the compression.
                 extractTask.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-                extractTask.arguments = ["-xf", archiveURL.path, "-C", extractDir.path]
+                extractTask.arguments = ["-xf", archiveFile.path, "-C", extractDir.path]
             }
             do { try extractTask.run(); extractTask.waitUntilExit() } catch {
-                try? FileManager.default.removeItem(at: archiveURL)
+                try? FileManager.default.removeItem(at: archiveFile)
                 try? FileManager.default.removeItem(at: extractDir)
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "Couldn't extract the ffmpeg archive." }
                 return
             }
-            try? FileManager.default.removeItem(at: archiveURL)
-            
-          /// The archive contains a folder structure (typically bin/ffmpeg somewhere inside) -
-         /// Search for the actual binary rather than assuming a fixed path, since that structure isn't guaranteed stable across builds.
+            try? FileManager.default.removeItem(at: archiveFile)
+
+    /// The archive contains a folder structure (typically bin/ffmpeg somewhere inside)
+    /// Search for the actual binary rather than assuming a fixed path, since that structure isn't guaranteed stable across builds.
             guard let enumerator = FileManager.default.enumerator(at: extractDir, includingPropertiesForKeys: nil) else {
                 try? FileManager.default.removeItem(at: extractDir)
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "Couldn't read the extracted files." }
                 return
             }
             var extractedBinary: URL?
@@ -221,32 +403,48 @@ class FfmpegUpdater: ObservableObject {
             }
             guard let binary = extractedBinary else {
                 try? FileManager.default.removeItem(at: extractDir)
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "Couldn't find the ffmpeg binary in the download." }
                 return
             }
-            
+
             // Verify the extracted binary's version before installing it.
-            let newVersion = self?.runCommand(executable: binary, arguments: ["-version"]) ?? ""
-            guard newVersion.contains(latestTag) else {
+            let newVersion = self.runCommand(executable: binary, arguments: ["-version"]) ?? ""
+            guard newVersion.contains(expectedTag) else {
                 try? FileManager.default.removeItem(at: extractDir)
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "The downloaded version didn't verify correctly." }
                 return
             }
-            
-            // Make executable
+
+            // chmod executable
             do {
                 var fileAttrs = try FileManager.default.attributesOfItem(atPath: binary.path)
                 let permissions = (fileAttrs[.posixPermissions] as? UInt16) ?? 0o644
                 fileAttrs[.posixPermissions] = permissions | 0o111
                 try FileManager.default.setAttributes(fileAttrs, ofItemAtPath: binary.path)
             } catch {}
-            
+
             try? FileManager.default.removeItem(at: userFfmpeg)
-            try? FileManager.default.copyItem(at: binary, to: userFfmpeg)
+            do {
+                try FileManager.default.copyItem(at: binary, to: userFfmpeg)
+            } catch {
+                try? FileManager.default.removeItem(at: extractDir)
+                DispatchQueue.main.async { self.isUpdating = false; self.lastError = "Couldn't install: \(error.localizedDescription)" }
+                return
+            }
             try? FileManager.default.removeItem(at: extractDir)
-            
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: self?.lastCheckKey ?? "")
+
+            DispatchQueue.main.async {
+                self.isUpdating = false
+                self.updateAvailable = false
+                self.downloadProgress = 1
+                self.lastError = nil
+                self.pendingDownloadURL = nil
+                self.pendingAssetName = nil
+                self.pendingTag = nil
+            }
         }
     }
-    
+
     // Fetch the latest release and return the macOS asset download URL and tag.
     private func fetchLatestReleaseInfo(from apiURL: String) -> (url: String?, tag: String?, assetName: String?)? {
         let task = Process()
@@ -257,9 +455,9 @@ class FfmpegUpdater: ObservableObject {
         guard let data = try? JSONSerialization.jsonObject(with: pipe.fileHandleForReading.readDataToEndOfFile()) as? [String: Any],
               let assets = data["assets"] as? [[String: Any]],
               let tag = data["tag_name"] as? String else { return nil }
-        
-    /// Find an asset that contains "macos" which is a compressed archive (.zip or .tar.xz), not a raw binary.
-    /// The caller needs the name to know how to extract it.
+
+        /// Find an asset that contains "macos" which is a compressed archive (.zip or .tar.xz), not a raw binary.
+        /// The caller needs the name to know how to extract it.
         for asset in assets {
             if let name = asset["name"] as? String,
                name.lowercased().contains("macos"),
@@ -269,7 +467,7 @@ class FfmpegUpdater: ObservableObject {
         }
         return (nil, tag, nil)
     }
-    
+
     private func runCommand(executable: URL, arguments: [String]) -> String? {
         let task = Process()
         task.executableURL = executable
